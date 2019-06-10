@@ -59,10 +59,12 @@ dataset_train = RolloutObservationDataset('datasets/carracing',
                                           transform_train, train=True)
 dataset_test = RolloutObservationDataset('datasets/carracing',
                                          transform_test, train=False)
+# torch.utils.data.DataLoader is a Pytorch iterator
 train_loader = torch.utils.data.DataLoader(
     dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=2)
 test_loader = torch.utils.data.DataLoader(
     dataset_test, batch_size=args.batch_size, shuffle=True, num_workers=2)
+
 
 
 model = VAE(3, LSIZE).to(device)
@@ -88,8 +90,13 @@ def train(epoch):
     model.train()
     dataset_train.load_next_buffer()
     train_loss = 0
+    # len(train_loader.dataset) = buffer_size * 1000
+    # The total number of batches = len(train_loader) = buffer_size * 1000 frames / batch_size
     for batch_idx, data in enumerate(train_loader):
+
         data = data.to(device)
+        # data.shape
+        #   torch.Size([batch_size, 3, 64, 64])
         optimizer.zero_grad()
         recon_batch, mu, logvar = model(data)
         loss = loss_function(recon_batch, data, mu, logvar)

@@ -32,6 +32,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # constants
 BSIZE = 16
+# SEQ_LEN seems to be related to batch_size in trainvae?
 SEQ_LEN = 32
 epochs = 30
 
@@ -170,6 +171,11 @@ def data_pass(epoch, train, include_reward): # pylint: disable=too-many-locals
         if train:
             losses = get_loss(latent_obs, action, reward,
                               terminal, latent_next_obs, include_reward)
+
+            # TODO: integrate this
+            # pn = train_Controller_givenMDRNN(initial_latent_obs = latent_obs, mdrnn = mdrnn, latent_dim = latent_obs.shape[0], hidden_dim = , action_dim = action.shape[0])
+            # pn_ope = ope_LGC(hidden_dim, mdrnn, pn)
+            # losses['loss'] -= pn_ope
 
             optimizer.zero_grad()
             losses['loss'].backward()

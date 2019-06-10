@@ -32,12 +32,14 @@ def generate_data(rollouts, data_dir, noise_type): # pylint: disable=R0914
             action = a_rollout[t]
             t += 1
 
+            # The CarRacing-v0 environment has a step limit of 1000, this can be seen in env.spec.max_episode_steps
             s, r, done, _ = env.step(action)
             env.env.viewer.window.dispatch_events()
             s_rollout += [s]
             r_rollout += [r]
             d_rollout += [done]
             if done:
+                # Because these are random policies, most of them will not be done before the step limit of 1000
                 print("> End of rollout {}, {} frames...".format(i, len(s_rollout)))
                 np.savez(join(data_dir, 'rollout_{}'.format(i)),
                          observations=np.array(s_rollout),

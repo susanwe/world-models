@@ -39,6 +39,7 @@ The VAE is trained using the `trainvae.py` file, e.g.
 ```bash
 python trainvae.py --logdir exp_dir
 ```
+SW: Getting error with mkdir. Made exp_dir directly manually.
 
 ### 3. Training the MDN-RNN
 The MDN-RNN is trained using the `trainmdrnn.py` file, e.g.
