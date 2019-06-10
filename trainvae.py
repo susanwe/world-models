@@ -91,7 +91,7 @@ def train(epoch):
     dataset_train.load_next_buffer()
     train_loss = 0
     # len(train_loader.dataset) = buffer_size * 1000
-    # The total number of batches = len(train_loader) = buffer_size * 1000 frames / batch_size
+    # The total number of batches = len(train_loader) =len(train_loader.dataset) / batch_size
     for batch_idx, data in enumerate(train_loader):
 
         data = data.to(device)

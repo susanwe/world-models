@@ -8,6 +8,7 @@ from multiprocessing import Pool
 from subprocess import call
 
 parser = argparse.ArgumentParser()
+# TODO: it seems rollouts here needs to be mindful of buffer_size in loaders?
 parser.add_argument('--rollouts', type=int, help="Total number of rollouts.")
 parser.add_argument('--threads', type=int, help="Number of threads")
 parser.add_argument('--rootdir', type=str, help="Directory to store rollout "
@@ -17,7 +18,7 @@ parser.add_argument('--policy', type=str, choices=['brown', 'white'],
                     default='brown')
 args = parser.parse_args()
 
-rpt = args.rollouts // args.threads + 1
+rpt = args.rollouts // args.threads
 
 def _threaded_generation(i):
     tdir = join(args.rootdir, 'thread_{}'.format(i))

@@ -8,7 +8,7 @@ import torch.utils.data
 import numpy as np
 
 class _RolloutDataset(torch.utils.data.Dataset): # pylint: disable=too-few-public-methods
-    def __init__(self, root, transform, buffer_size=200, train=True): # pylint: disable=too-many-arguments
+    def __init__(self, root, transform, buffer_size=2, train=True): # pylint: disable=too-many-arguments
         self._transform = transform
 
         self._files = [
@@ -16,10 +16,16 @@ class _RolloutDataset(torch.utils.data.Dataset): # pylint: disable=too-few-publi
             for sd in listdir(root) if isdir(join(root, sd))
             for ssd in listdir(join(root, sd))]
 
+        # TODO: what is the meaning of this arbitrary 600 in the original code?
+        # if train:
+        #     self._files = self._files[:-600] #the first 600 rollouts in self._files
+        # else:
+        #     self._files = self._files[-600:] #the last 600 rollouts in self._files
+
         if train:
-            self._files = self._files[:-600]
+            self._files = self._files[:-len(self._files)//2] #the first x rollouts in self._files
         else:
-            self._files = self._files[-600:]
+            self._files = self._files[-len(self._files)//2:] #the last x rollouts in self._files
 
         self._cum_size = None
         self._buffer = None
@@ -98,7 +104,7 @@ class RolloutSequenceDataset(_RolloutDataset): # pylint: disable=too-few-public-
     :args transform: transformation of the observations
     :args train: if True, train data, else test
     """
-    def __init__(self, root, seq_len, transform, buffer_size=200, train=True): # pylint: disable=too-many-arguments
+    def __init__(self, root, seq_len, transform, buffer_size=2, train=True): # pylint: disable=too-many-arguments
         super().__init__(root, transform, buffer_size, train)
         self._seq_len = seq_len
 
