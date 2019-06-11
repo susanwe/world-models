@@ -118,14 +118,18 @@ class MDRNNCell(_MDRNNBase):
         :args latents: (BSIZE, LSIZE) torch tensor
         :args hidden: (BSIZE, RSIZE) torch tensor
 
-        :returns: mu_nlat, sig_nlat, pi_nlat, r, d, next_hidden, parameters of
-        the GMM prediction for the next latent, gaussian prediction of the
-        reward, logit prediction of terminality and next hidden state.
-            - mu_nlat: (BSIZE, N_GAUSS, LSIZE) torch tensor
-            - sigma_nlat: (BSIZE, N_GAUSS, LSIZE) torch tensor
-            - logpi_nlat: (BSIZE, N_GAUSS) torch tensor
-            - rs: (BSIZE) torch tensor
-            - ds: (BSIZE) torch tensor
+        :returns:
+            Parameters of the GMM prediction for the next latent
+                - mus: (BSIZE, N_GAUSS, LSIZE) torch tensor
+                - sigmas: (BSIZE, N_GAUSS, LSIZE) torch tensor
+                - logpi: (BSIZE, N_GAUSS) torch tensor
+            Gaussian prediction of the reward
+                - r: (BSIZE) torch tensor.
+            Logit prediction of terminality
+                - d: (BSIZE) torch tensor
+            Next hidden state
+                - next_hidden: (BSIZE, RSIZE) torch tensor.
+
         """
         in_al = torch.cat([action, latent], dim=1)
 

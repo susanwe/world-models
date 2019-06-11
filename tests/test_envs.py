@@ -14,7 +14,7 @@ class TestEnvs(unittest.TestCase):
     """ Test environments """
     def test_simulated_carracing(self):
         """ Test simulated Car Racing """
-        env = SimulatedCarracing('logs/exp0')
+        env = SimulatedCarracing('exp_dir')
         env.reset()
         seq_len = 1000
         actions = sample_continuous_policy(

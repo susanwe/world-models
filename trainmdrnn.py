@@ -4,11 +4,12 @@ from functools import partial
 from os.path import join, exists
 from os import mkdir
 import torch
-import torch.nn.functional as f
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import numpy as np
 from tqdm import tqdm
+from utils.misc import train_C_given_M, ope
 from utils.misc import save_checkpoint
 from utils.misc import ASIZE, LSIZE, RSIZE, RED_SIZE, SIZE
 from utils.learning import EarlyStopping
@@ -17,7 +18,7 @@ from utils.learning import ReduceLROnPlateau
 
 from data.loaders import RolloutSequenceDataset
 from models.vae import VAE
-from models.mdrnn import MDRNN, gmm_loss
+from models.mdrnn import MDRNN, MDRNNCell, gmm_loss
 
 parser = argparse.ArgumentParser("MDRNN training")
 parser.add_argument('--logdir', type=str,
@@ -26,6 +27,8 @@ parser.add_argument('--noreload', action='store_true',
                     help="Do not reload if specified.")
 parser.add_argument('--include_reward', action='store_true',
                     help="Add a reward modelisation term to the loss.")
+parser.add_argument('--epochs', type=int, default=30, metavar='N',
+                    help='number of epochs to train (default: 30)')
 args = parser.parse_args()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -34,7 +37,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 BSIZE = 16
 # SEQ_LEN seems to be related to batch_size in trainvae?
 SEQ_LEN = 32
-epochs = 30
 
 # Loading VAE
 vae_file = join(args.logdir, 'vae', 'best.tar')
@@ -54,6 +56,10 @@ rnn_file = join(rnn_dir, 'best.tar')
 if not exists(rnn_dir):
     mkdir(rnn_dir)
 
+# LSIZE = latent dimension
+# ASIZE = action dimension
+# RSIZE = hidden dimension
+# last argument is number of Gaussian mixtures
 mdrnn = MDRNN(LSIZE, ASIZE, RSIZE, 5)
 mdrnn.to(device)
 optimizer = torch.optim.RMSprop(mdrnn.parameters(), lr=1e-3, alpha=.9)
@@ -94,7 +100,7 @@ def to_latent(obs, next_obs):
     """
     with torch.no_grad():
         obs, next_obs = [
-            f.upsample(x.view(-1, 3, SIZE, SIZE), size=RED_SIZE,
+            F.interpolate(x.view(-1, 3, SIZE, SIZE), size=RED_SIZE,
                        mode='bilinear', align_corners=True)
             for x in (obs, next_obs)]
 
@@ -134,9 +140,9 @@ def get_loss(latent_obs, action, reward, terminal,
                                        latent_next_obs]]
     mus, sigmas, logpi, rs, ds = mdrnn(action, latent_obs)
     gmm = gmm_loss(latent_next_obs, mus, sigmas, logpi)
-    bce = f.binary_cross_entropy_with_logits(ds, terminal)
+    bce = F.binary_cross_entropy_with_logits(ds, terminal)
     if include_reward:
-        mse = f.mse_loss(rs, reward)
+        mse = F.mse_loss(rs, reward)
         scale = LSIZE + 2
     else:
         mse = 0
@@ -173,9 +179,12 @@ def data_pass(epoch, train, include_reward): # pylint: disable=too-many-locals
                               terminal, latent_next_obs, include_reward)
 
             # TODO: integrate this
-            # pn = train_Controller_givenMDRNN(initial_latent_obs = latent_obs, mdrnn = mdrnn, latent_dim = latent_obs.shape[0], hidden_dim = , action_dim = action.shape[0])
-            # pn_ope = ope_LGC(hidden_dim, mdrnn, pn)
-            # losses['loss'] -= pn_ope
+            mdrnnCell = MDRNNCell(LSIZE, ASIZE, RSIZE, 5)
+            rnn_state_dict = {k.strip('_l0'): v for k, v in mdrnn.state_dict().items()}
+            mdrnnCell.load_state_dict(rnn_state_dict)
+            pn = train_C_given_M(mdrnnCell = mdrnnCell, latent_dim = LSIZE, hidden_dim = RSIZE, action_dim = ASIZE)
+            pn_ope = ope(hidden_dim, mdrnn, pn)
+            losses['loss'] -= pn_ope
 
             optimizer.zero_grad()
             losses['loss'].backward()
@@ -204,7 +213,7 @@ train = partial(data_pass, train=True, include_reward=args.include_reward)
 test = partial(data_pass, train=False, include_reward=args.include_reward)
 
 cur_best = None
-for e in range(epochs):
+for e in range(args.epochs):
     train(e)
     test_loss = test(e)
     scheduler.step(test_loss)

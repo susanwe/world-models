@@ -9,6 +9,8 @@ import gym
 import gym.envs.box2d
 from itertools import count
 from torch.distributions import MultivariateNormal
+from torch.distributions.categorical import Categorical
+
 
 # A bit dirty: manually change size of car racing env
 gym.envs.box2d.car_racing.STATE_W, gym.envs.box2d.car_racing.STATE_H = 64, 64
@@ -202,136 +204,139 @@ class RolloutGenerator(object):
             i += 1
 
 
-# def train_Controller_givenMDRNN(initial_latent_obs, mdrnn, latent_dim, hidden_dim, action_dim):
-#
-#     episode_durations = []
-#
-#     # Parameters
-#     num_episode = 10
-#     batch_size = 5
-#     learning_rate = 0.01
-#     gamma = 0.99
-#
-#     pn = Controller(latent_dim, hidden_dim, action_dim)
-#     optimizer = torch.optim.RMSprop(pn.parameters(), lr=learning_rate)
-#
-#     # Batch History
-#     state_pool = []
-#     action_pool = []
-#     reward_pool = []
-#     steps = 0
-#
-#     for e in range(num_episode):
-#
-#         # grab initial latent-hidden tuple (z_t, h_t)
-#         z_t = initial_latent_obs
-#         h_t = zeros()
-#
-#         for t in count():
-#
-#             mean_a_t = pn(z_t, h_t)
-#             action_policy_std = 0.1
-#             cov = action_policy_std * torch.eye(action_dim)
-#             stochastic_policy = MultivariateNormal(loc=mean_a_t, covariance_matrix=cov)
-#             a_t = stochastic_policy.sample()
-#
-#             mus, sigmas, logpi, rs, ds, next_hidden = mdrnn(a_t,z_t,h_t)
-#             # sample next z_t from N(mu, sigma)
-#             next_latent = MultivariateNormal(loc=mus,covariance_matrix = sigmas
-#             reward = -0.1
-#             if logpi >= args.done_threshold:
-#                 done = True
-#             else:
-#                 done = False
-#
-#             state_pool.append((next_latent, next_hidden))
-#             action_pool.append(a_t)
-#             reward_pool.append(reward)
-#
-#             steps += 1
-#             z_t = next_latent
-#             h_t = next_hidden
-#             if done:
-#                 episode_durations.append(t + 1)
-#                 break
-#
-#         # Update policy
-#         if e > 0 and e % batch_size == 0:
-#
-#             # Discount reward
-#             running_add = 0
-#             for i in reversed(range(steps)):
-#                 if reward_pool[i] == 0:
-#                     running_add = 0
-#                 else:
-#                     running_add = running_add * gamma + reward_pool[i]
-#                     reward_pool[i] = running_add
-#
-#             # Normalize reward
-#             reward_mean = np.mean(reward_pool)
-#             reward_std = np.std(reward_pool)
-#             for i in range(steps):
-#                 reward_pool[i] = (reward_pool[i] - reward_mean) / reward_std
-#
-#             # Gradient Desent
-#             pn.cleargrads()
-#
-#             for i in range(steps):
-#                 z_t,h_t,c_t = state_pool[i]
-#                 action = action_pool[i]
-#                 reward = reward_pool[i]
-#
-#                 mean_a_t = pn(z_t, h_t)
-#                 action_policy_std = 0.1
-#                 cov = action_policy_std * torch.eye(action_dim)
-#                 stochastic_policy = MultivariateNormal(loc=mean_a_t,
-#                                                        covariance_matrix=cov)
-#                 loss = -stochastic_policy.log_prob(action) * reward  # Negtive score function x reward
-#                 loss.backward()
-#
-#             optimizer.update()
-#
-#             state_pool = []
-#             action_pool = []
-#             reward_pool = []
-#             steps = 0
-#
-#         return pn
-#
-#
-# def ope_LGC(hidden_dim, mdrnn, policy_net):
-#
-#     ope = 0
-#
-#     # Calculating for one historical rollout
-#
-#     # initial hidden
-#     h_t = torch.zeros(hidden_dim)
-#     t = 0
-#
-#     # Pick a real rollout
-#     rollout_z_t, rollout_action, rollout_reward, rollout_done
-#     done = rollout_done[0]
-#     weight_prod = 1
-#
-#     while not done:
-#
-#         z_t = rollout_z_t[t]
-#
-#         eval_policy_mean = policy_net(z_t, h_t)
-#
-#         # TODO: yikes this shouldn't be hardcoded...
-#         action_policy_std = 0.1
-#
-#         M = MultivariateNormal(eval_policy_mean, action_policy_std * torch.eye(action_dim))
-#         weight_prod *= torch.exp(M.log_prob(rollout_action[t]))
-#         ope += weight_prod * rollout_reward[t]
-#
-#         _, _, _, _, _, next_hidden = mdrnn(rollout_action[t], z_t, h_t)
-#
-#         h_t = next_hidden
-#
-#         t += 1
-#         done = rollout_done[t]
-#
-#     return ope
+def train_C_given_M(mdrnnCell, latent_dim, hidden_dim, action_dim):
+
+    # Parameters
+    num_episode = 1
+    batch_size = 1
+    learning_rate = 0.01
+    gamma = 0.99
+    done_threshold = np.log(0.5)
+
+    pn = Controller(latent_dim, hidden_dim, action_dim)
+    pn_optimizer = torch.optim.RMSprop(pn.parameters(), lr=learning_rate)
+
+    # Batch History
+    state_pool = []
+    action_pool = []
+    reward_pool = []
+    steps = 0
+
+    for e in range(num_episode):
+
+        # initial latent and hidden states
+        z_t = torch.randn(1, LSIZE)
+        h_t = 2 * [torch.zeros(1, RSIZE)]
+
+        for t in range(1000):
+
+            # pick action using policy net given z_t, h_t
+            mean_a_t = pn(z_t, h_t[0])
+            action_policy_std = 0.1
+            cov = action_policy_std * torch.eye(action_dim)
+            stochastic_policy = MultivariateNormal(loc=mean_a_t, covariance_matrix=cov)
+            a_t = stochastic_policy.sample()
+
+
+            mu, sigma, pi, r, d, n_h = mdrnnCell(a_t,z_t,h_t)
+            # sample next z_t from N(mu, sigma)
+            pi = pi.squeeze()
+            mixt = Categorical(torch.exp(pi)).sample().item()
+
+            z_t = mu[:, mixt, :] # + sigma[:, mixt, :] * torch.randn_like(mu[:, mixt, :])
+            h_t = n_h
+
+            reward = -0.1
+            if d >= done_threshold:
+                done = True
+            else:
+                done = False
+
+            state_pool.append((z_t,h_t))
+            action_pool.append(a_t)
+            reward_pool.append(reward)
+
+            steps += 1
+            if done:
+                break
+
+        # Update policy
+        if e > 0 and e % batch_size == 0:
+
+            # Discount reward
+            running_add = 0
+            for i in reversed(range(steps)):
+                if reward_pool[i] == 0:
+                    running_add = 0
+                else:
+                    running_add = running_add * gamma + reward_pool[i]
+                    reward_pool[i] = running_add
+
+            # Normalize reward
+            reward_mean = np.mean(reward_pool)
+            reward_std = np.std(reward_pool)
+            for i in range(steps):
+                reward_pool[i] = (reward_pool[i] - reward_mean) / reward_std
+
+            # Gradient Desent
+            pn_optimizer.zero_grad()
+
+            for i in range(steps):
+                z_t,h_t = state_pool[i]
+                action = action_pool[i]
+                reward = reward_pool[i]
+
+                mean_a_t = pn(z_t, h_t[0])
+                action_policy_std = 0.1
+                cov = action_policy_std * torch.eye(action_dim)
+                stochastic_policy = MultivariateNormal(loc=mean_a_t,
+                                                       covariance_matrix=cov)
+                loss = -stochastic_policy.log_prob(action) * reward  # Negtive score function x reward
+                # TODO: why do we need to use retain_graph here?
+                loss.backward(retain_graph=True)
+                pn_optimizer.step()
+
+            state_pool = []
+            action_pool = []
+            reward_pool = []
+            steps = 0
+
+    return pn
+
+
+def ope(hidden_dim, mdrnn, policy_net):
+
+    ope = 0
+
+    # Calculating for one historical rollout
+
+    # initial hidden
+    h_t = torch.zeros(hidden_dim)
+    t = 0
+
+    # Pick a real rollout
+    rollout_z_t, rollout_action, rollout_reward, rollout_done
+    done = rollout_done[0]
+    weight_prod = 1
+
+    while not done:
+
+        z_t = rollout_z_t[t]
+
+        eval_policy_mean = policy_net(z_t, h_t)
+
+        # TODO: yikes this shouldn't be hardcoded...
+        action_policy_std = 0.1
+
+        M = MultivariateNormal(eval_policy_mean, action_policy_std * torch.eye(action_dim))
+        weight_prod *= torch.exp(M.log_prob(rollout_action[t]))
+        ope += weight_prod * rollout_reward[t]
+
+        _, _, _, _, _, next_hidden = mdrnn(rollout_action[t], z_t, h_t)
+
+        h_t = next_hidden
+
+        t += 1
+        done = rollout_done[t]
+
+    return ope
