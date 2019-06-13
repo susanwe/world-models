@@ -41,7 +41,7 @@ torch.backends.cudnn.benchmark = True
 
 device = torch.device("cuda" if cuda else "cpu")
 
-
+# TODO: check why this does not match the transform in misc.py
 transform_train = transforms.Compose([
     transforms.ToPILImage(),
     transforms.Resize((RED_SIZE, RED_SIZE)),

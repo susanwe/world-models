@@ -1,4 +1,5 @@
 """ Recurrent model training """
+import random
 import argparse
 from functools import partial
 from os.path import join, exists
@@ -9,12 +10,14 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 import numpy as np
 from tqdm import tqdm
-from utils.misc import train_C_given_M, ope
+from utils.misc import train_C_given_M
 from utils.misc import save_checkpoint
 from utils.misc import ASIZE, LSIZE, RSIZE, RED_SIZE, SIZE
 from utils.learning import EarlyStopping
 ## WARNING : THIS SHOULD BE REPLACED WITH PYTORCH 0.5
 from utils.learning import ReduceLROnPlateau
+
+from torch.distributions import MultivariateNormal
 
 from data.loaders import RolloutSequenceDataset
 from models.vae import VAE
@@ -33,9 +36,9 @@ args = parser.parse_args()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+# TODO: these constants from original code shouldn't be hardcoded
 # constants
 BSIZE = 16
-# SEQ_LEN seems to be related to batch_size in trainvae?
 SEQ_LEN = 32
 
 # Loading VAE
@@ -113,6 +116,67 @@ def to_latent(obs, next_obs):
             [(obs_mu, obs_logsigma), (next_obs_mu, next_obs_logsigma)]]
     return latent_obs, latent_next_obs
 
+
+def ope(mdrnnCell, interim_policy):
+
+    transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((RED_SIZE, RED_SIZE)),
+        transforms.ToTensor()
+    ])
+
+    ope = torch.tensor([0.0])
+
+    # Calculating for one historical rollout
+
+    # initial hidden
+    h_t = 2 * [torch.zeros(1, RSIZE)]
+    t = 0
+
+    # TODO: perform OPE on all available historical outputs rather than a random one as below
+    file = np.load('datasets/carracing/thread_{}/rollout_{}.npz'.format(random.randint(0,7),random.randint(0,125)))
+
+    rollout_action = file['actions']
+    rollout_action = torch.from_numpy(rollout_action).float()
+    rollout_reward = file['rewards']
+    rollout_reward = torch.from_numpy(rollout_reward).float()
+
+    rollout_done = file['terminals']
+
+    rollout_z_t = []
+    for i in range(file['observations'].shape[0]):
+        raw_obs = file['observations'][i]
+        transform_obs = transform(raw_obs).unsqueeze(0).to(device)
+        _, latent_obs, _ = vae(transform_obs)
+        rollout_z_t.append(latent_obs)
+
+
+    done = rollout_done[0]
+    weight_prod = torch.tensor([1.0])
+
+    while not done:
+
+        z_t = rollout_z_t[t]
+
+        eval_policy_mean = interim_policy(z_t, h_t[0])
+
+        # TODO: yikes this shouldn't be hardcoded...
+        action_policy_std = 0.1
+        M = MultivariateNormal(loc=eval_policy_mean, covariance_matrix = action_policy_std * torch.eye(ASIZE), validate_args=True)
+        # TODO: check why clone() is necessary to avoid in-place error
+        weight_prod = weight_prod.clone() * torch.exp(M.log_prob(rollout_action[t])) # this is the first term in Equation 1 from Thomas & Brunskill 2016 without the summation from i=1 to n
+        ope = ope.clone() + weight_prod * rollout_reward[t]
+
+        _, _, _, _, _, next_hidden = mdrnnCell(rollout_action[t].unsqueeze(dim=0), z_t, h_t)
+
+        h_t = next_hidden
+
+        t += 1
+        done = rollout_done[t]
+
+    return ope
+
+
 def get_loss(latent_obs, action, reward, terminal,
              latent_next_obs, include_reward: bool):
     """ Compute losses.
@@ -178,23 +242,23 @@ def data_pass(epoch, train, include_reward): # pylint: disable=too-many-locals
             losses = get_loss(latent_obs, action, reward,
                               terminal, latent_next_obs, include_reward)
 
-            # TODO: integrate this
             mdrnnCell = MDRNNCell(LSIZE, ASIZE, RSIZE, 5)
             rnn_state_dict = {k.strip('_l0'): v for k, v in mdrnn.state_dict().items()}
             mdrnnCell.load_state_dict(rnn_state_dict)
-            pn = train_C_given_M(mdrnnCell = mdrnnCell, latent_dim = LSIZE, hidden_dim = RSIZE, action_dim = ASIZE)
-            pn_ope = ope(hidden_dim, mdrnn, pn)
-            losses['loss'] -= pn_ope
+            interim_policy = train_C_given_M(mdrnnCell=mdrnnCell, latent_dim=LSIZE, hidden_dim=RSIZE, action_dim=ASIZE)
+            interim_policy_ope = ope(mdrnnCell, interim_policy)
+            loss = losses['loss'] - interim_policy_ope.squeeze(dim=0)
 
             optimizer.zero_grad()
-            losses['loss'].backward()
+            loss.backward()
             optimizer.step()
         else:
             with torch.no_grad():
                 losses = get_loss(latent_obs, action, reward,
                                   terminal, latent_next_obs, include_reward)
 
-        cum_loss += losses['loss'].item()
+        # cum_loss += losses['loss'].item()
+        cum_loss += loss.item()
         cum_gmm += losses['gmm'].item()
         cum_bce += losses['bce'].item()
         cum_mse += losses['mse'].item() if hasattr(losses['mse'], 'item') else \
